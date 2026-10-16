@@ -11,6 +11,11 @@ const UA_PRESETS = [
     { label: 'opencode/latest/2.0.6/desktop', value: 'opencode/latest/2.0.6/desktop' },
 ];
 
+// SillyTavern 的 Google 系聊天完成源。
+// 它们由后端 sendMakerSuiteRequest() 处理:上游 header 在服务端写死(只有 Content-Type),
+// 且服务端不解析 custom_include_headers,前端无法直接注入,需要 st-patch/ 里的后端补丁。
+const GOOGLE_SOURCES = ['makersuite', 'google', 'vertexai'];
+
 let sesLastMs = 0;
 let sesCounter = 0;
 
@@ -26,6 +31,7 @@ function defaultSettings() {
         spoofUa: true,
         uaPresetIndex: 0,
         clientValue: 'cli',
+        injectGoogle: true,
     };
 }
 
@@ -171,16 +177,14 @@ function applyTavernHelperFallback(generateData) {
     generateData.custom_url = generateData.reverse_proxy;
 }
 
-function applyHeaders(generateData) {
+/**
+ * 生成一套 opencode 客户端格式的请求头。
+ * 每次调用都会新生成 x-opencode-request,并武装回复消息上的 request id 徽标。
+ * @returns {Record<string, string>} header 映射
+ */
+function buildOpencodeHeaders() {
     const s = getSettings();
-    if (!s.enabled) return;
-    applyTavernHelperFallback(generateData);
-    const headers = parseHeadersYaml(generateData.custom_include_headers);
-    // 额外模型走 CUSTOM 分支时,key 来自 SECRET_KEYS.CUSTOM;而 tavern-helper 的 key 在 proxy_password 里,
-    // 需要显式写入 Authorization 才能通过上游认证
-    if (generateData.proxy_password && !headers['Authorization']) {
-        headers['Authorization'] = `Bearer ${generateData.proxy_password}`;
-    }
+    const headers = {};
     const sessionId = getOrCreateSessionId();
     if (sessionId) {
         headers['x-opencode-session'] = sessionId;
@@ -191,6 +195,40 @@ function applyHeaders(generateData) {
     if (s.spoofUa) {
         headers['user-agent'] = getUaValue();
     }
+    return headers;
+}
+
+/**
+ * 判断该次请求是否走 Google 系(Google AI Studio / Vertex AI)源。
+ * @param {object} generateData 请求体
+ * @returns {boolean} 是否为 Google 系源
+ */
+function isGoogleSource(generateData) {
+    return GOOGLE_SOURCES.includes(String(generateData?.chat_completion_source || ''));
+}
+
+function applyHeaders(generateData) {
+    const s = getSettings();
+    if (!s.enabled) return;
+
+    // Google AI Studio / Vertex AI:服务端把上游 header 写死且不解析 custom_include_headers,
+    // 只能把 header 交给配套的后端补丁(st-patch/)读取 open_code_headers 后合并到上游请求。
+    // 该路径下不读取 custom_include_headers,避免把 custom 源里填的自定义头带到 Google 请求上。
+    if (isGoogleSource(generateData)) {
+        if (s.injectGoogle) {
+            generateData.open_code_headers = yaml.stringify(buildOpencodeHeaders());
+        }
+        return;
+    }
+
+    applyTavernHelperFallback(generateData);
+    const headers = parseHeadersYaml(generateData.custom_include_headers);
+    // 额外模型走 CUSTOM 分支时,key 来自 SECRET_KEYS.CUSTOM;而 tavern-helper 的 key 在 proxy_password 里,
+    // 需要显式写入 Authorization 才能通过上游认证
+    if (generateData.proxy_password && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${generateData.proxy_password}`;
+    }
+    Object.assign(headers, buildOpencodeHeaders());
     generateData.custom_include_headers = yaml.stringify(headers);
 }
 
@@ -251,6 +289,11 @@ const TEMPLATE = `
                 <input id="ocgo_enabled" type="checkbox" />
                 <span>启用（注入 x-opencode-* 请求头）</span>
             </label>
+            <label class="checkbox_label">
+                <input id="ocgo_inject_google" type="checkbox" />
+                <span>为 Google AI Studio 源注入（需安装 st-patch 后端补丁）</span>
+            </label>
+            <div class="ocgo-hint">Google AI Studio / Vertex AI 的上游请求头由 ST 服务端写死，必须先在 ST 目录运行 <code>node st-patch/install.mjs</code> 才能生效。</div>
 
             <label for="ocgo_mode">会话 ID 模式</label>
             <select id="ocgo_mode" class="text_pole">
@@ -308,6 +351,12 @@ function bindSettings() {
     el('ocgo_enabled').checked = !!settings.enabled;
     el('ocgo_enabled').addEventListener('change', (e) => {
         settings.enabled = e.target.checked;
+        saveSettingsDebounced();
+    });
+
+    el('ocgo_inject_google').checked = !!settings.injectGoogle;
+    el('ocgo_inject_google').addEventListener('change', (e) => {
+        settings.injectGoogle = e.target.checked;
         saveSettingsDebounced();
     });
 

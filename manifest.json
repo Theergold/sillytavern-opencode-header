@@ -1,9 +1,9 @@
 {
     "display_name": "OpenCode Go Session Header",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "you",
     "homePage": "https://opencode.ai/docs/go",
-    "description": "Injects x-opencode-session / x-opencode-request / x-opencode-client headers (per-chat / random / manual session modes) for OpenCode v2, optional User-Agent preset selection, and shows the request id next to the message timestamp for OpenCode Go via Custom (OpenAI-compatible) Chat Completion.",
+    "description": "Injects x-opencode-session / x-opencode-request / x-opencode-client headers (per-chat / random / manual session modes) for OpenCode v2, optional User-Agent preset selection, and shows the request id next to the message timestamp. Works with Custom (OpenAI-compatible) Chat Completion out of the box; Google AI Studio / Vertex AI sources are supported through the bundled st-patch backend patch.",
     "loading_order": 100,
     "requires": [],
     "optional": [],
