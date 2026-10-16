@@ -1,0 +1,2 @@
+# Patch files must keep LF line endings so `git apply` works on any platform.
+*.patch text eol=lf

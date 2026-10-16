@@ -1,0 +1,40 @@
+diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
+index 34a7c6b..b5e9aee 100644
+--- a/src/endpoints/backends/chat-completions.js
++++ b/src/endpoints/backends/chat-completions.js
+@@ -322,6 +322,24 @@ async function sendScaleRequest(request, response) {
+     }
+ }
+ 
++/* BEGIN ocgo-google-headers */
++/**
++ * Builds the upstream headers for Google AI Studio / Vertex AI requests.
++ * Headers supplied by the client in `open_code_headers` (YAML) are merged on top of the
++ * defaults, so protocol-level headers (e.g. OpenCode session headers) can be forwarded.
++ * @param {express.Request} request Express request
++ * @returns {Record<string, string>} Headers for the upstream request
++ */
++function getMakerSuiteHeaders(request) {
++    const headers = { 'Content-Type': 'application/json' };
++
++    if (typeof request.body.open_code_headers === 'string' && request.body.open_code_headers.trim()) {
++        mergeObjectWithYaml(headers, request.body.open_code_headers);
++    }
++
++    return headers;
++}
++/* END ocgo-google-headers */
+ /**
+  * Sends a request to Google AI API.
+  * @param {express.Request} request Express request
+@@ -445,9 +463,7 @@ async function sendMakerSuiteRequest(request, response) {
+         const generateResponse = await fetch(`${apiUrl.toString().replace(/\/$/, '')}/${apiVersion}/models/${model}:${responseType}?key=${apiKey}${stream ? '&alt=sse' : ''}`, {
+             body: JSON.stringify(body),
+             method: 'POST',
+-            headers: {
+-                'Content-Type': 'application/json',
+-            },
++            headers: getMakerSuiteHeaders(request),
+             signal: controller.signal,
+         });
+         // have to do this because of their busted ass streaming endpoint
